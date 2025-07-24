@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Word Counter with Dynamic RPM</title>
+    <style>
+        :root {
+            --primary-color: #4A90E2;
+            --secondary-color: #50E3C2;
+            --background-color: #F8F9FA;
+            --card-background: #FFFFFF;
+            --text-color: #333333;
+            --border-color: #DDDDDD;
+            --red-color: #FF6B6B;
+            --dark-blue: #2A60A0; /* Slightly darker primary for hover */
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background-color: var(--card-background);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            padding: 30px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+        }
+
+        h1 {
+            color: var(--primary-color);
+            font-size: 2.2rem;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        label {
+            font-weight: 600;
+            font-size: 1rem;
+            color: #555;
+        }
+
+        #wordToCount {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 1rem;
+            box-sizing: border-box;
+            transition: border-color 0.3s;
+        }
+
+        #wordToCount:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+        }
+
+        button {
+            padding: 12px 25px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.1s;
+        }
+
+        #startButton {
+            background-color: var(--primary-color);
+            flex-grow: 1;
+        }
+
+        #startButton.active {
+            background-color: var(--red-color);
+        }
+
+        #clearButton {
+            background-color: #B0B0B0;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+        }
+
+        #startButton:hover:not(.active) {
+            background-color: var(--dark-blue); /* Darker primary */
+        }
+
+        #startButton.active:hover {
+            background-color: #D65A5A; /* Darker red */
+        }
+
+        #clearButton:hover {
+            background-color: #909090;
+        }
+
+        /* Metrics display (timer and RPM) */
+        .metrics-display {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 25px;
+            gap: 10px;
+        }
+
+        .metric-box {
+            background-color: var(--secondary-color);
+            color: #FFFFFF;
+            padding: 15px 20px;
+            border-radius: 10px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .metric-box p {
+            margin: 0 0 5px 0;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        /* Main count display */
+        .count-display {
+            background-color: var(--primary-color);
+            color: #FFFFFF;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+        }
+
+        .count-display p {
+            margin: 0;
+            font-size: 1.2rem;
+            font-weight: 500;
+        }
+
+        #wordCount {
+            font-size: 4rem;
+            font-weight: bold;
+            margin: 10px 0;
+            line-height: 1;
+        }
+
+        /* Transcript area */
+        .transcript-container {
+            text-align: left;
+            border-top: 1px solid var(--border-color);
+            padding-top: 20px;
+        }
+
+        .transcript-container h3 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            color: #555;
+        }
+
+        #liveTranscript {
+            background-color: var(--background-color);
+            padding: 15px;
+            border-radius: 8px;
+            min-height: 50px;
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.6;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .message {
+            margin-top: 20px;
+            color: var(--red-color);
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Live Word Counter</h1>
+        <p>Count a specific word and track your "words per minute".</p>
+
+        <div class="controls">
+            <div class="input-group">
+                <label for="wordToCountInput">Word to count:</label>
+                <input type="text" id="wordToCountInput" placeholder="e.g., 'hello'" value="okay" autofocus>
+            </div>
+            <div class="button-group">
+                <button id="startButton">Start Listening</button>
+                <button id="clearButton">Clear</button>
+            </div>
+        </div>
+
+        <div class="metrics-display">
+            <div class="metric-box">
+                <p>Elapsed Time:</p>
+                <div id="elapsedTimeDisplay" class="metric-value">00:00</div>
+            </div>
+            <div class="metric-box">
+                <p>"<span id="monitoredWordRateDisplay">okay</span>" per Minute:</p>
+                <div id="wordsPerMinuteDisplay" class="metric-value">0.0</div>
+            </div>
+        </div>
+
+        <div class="count-display">
+            <p>Total count for "<span id="displayMonitoredWord">okay</span>":</p>
+            <div id="totalWordCount">0</div>
+        </div>
+
+        <div class="transcript-container">
+            <h3>Live Transcript:</h3>
+            <div id="liveTranscriptOutput"></div>
+        </div>
+        <p id="systemMessage" class="hidden"></p>
+    </div>
+
+    <script>
+        // --- HTML Element References (now with clearer names) ---
+        const startStopButton = document.getElementById('startButton');
+        const resetButton = document.getElementById('clearButton');
+        const wordInput = document.getElementById('wordToCountInput'); // Renamed
+        const totalWordCountDisplay = document.getElementById('totalWordCount'); // Renamed
+        const displayMonitoredWordSpan = document.getElementById('displayMonitoredWord'); // Renamed
+        const liveTranscriptOutput = document.getElementById('liveTranscriptOutput'); // Renamed
+        const systemMessageDisplay = document.getElementById('systemMessage'); // Renamed
+
+        const elapsedTimeDisplay = document.getElementById('elapsedTimeDisplay'); // Renamed
+        const wordsPerMinuteDisplay = document.getElementById('wordsPerMinuteDisplay'); // Renamed
+        const monitoredWordRateDisplay = document.getElementById('monitoredWordRateDisplay'); // Renamed
+
+        // --- Application State Variables (now with clearer names) ---
+        let speechRecognizer; // Renamed from 'recognition'
+        let isMicrophoneActive = false; // Renamed from 'isListening'
+        let currentWordCount = 0; // Renamed from 'count'
+        let wordToMonitor = wordInput.value.toLowerCase().trim(); // Renamed from 'targetWord'
+
+        let sessionStartTime = 0; // Renamed from 'startTime'
+        let timerIntervalId; // Renamed from 'timerInterval'
+
+        // --- Helper Function: Formats seconds into MM:SS ---
+        function formatSecondsToMinutesSeconds(totalSeconds) { // Renamed
+            const minutes = Math.floor(totalSeconds / 60);
+            const remainingSeconds = Math.floor(totalSeconds % 60);
+            const formattedMinutes = String(minutes).padStart(2, '0');
+            const formattedSeconds = String(remainingSeconds).padStart(2, '0');
+            return `${formattedMinutes}:${formattedSeconds}`;
+        }
+
+        // --- Core Function: Updates all real-time metrics (timer, WPM) ---
+        function updateLiveMetricsDisplay() { // Renamed
+            // If the session hasn't started or is fully reset, set displays to initial state
+            if (!isMicrophoneActive && sessionStartTime === 0) { 
+                elapsedTimeDisplay.textContent = '00:00';
+                wordsPerMinuteDisplay.textContent = '0.0';
+                return;
+            }
+
+            const elapsedMilliseconds = Date.now() - sessionStartTime;
+            const elapsedSeconds = elapsedMilliseconds / 1000;
+
+            elapsedTimeDisplay.textContent = formatSecondsToMinutesSeconds(elapsedSeconds); // Update timer display
+
+            if (elapsedSeconds > 0) {
+                // Calculate "Monitored Words Per Minute" (MWPM)
+                const calculatedWPM = (currentWordCount / elapsedSeconds) * 60;
+                wordsPerMinuteDisplay.textContent = calculatedWPM.toFixed(1); // Display MWPM rounded to one decimal place
+            } else {
+                wordsPerMinuteDisplay.textContent = '0.0'; // Avoid division by zero
+            }
+        }
+
+        // --- Web Speech API Setup and Event Handlers ---
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+            systemMessageDisplay.textContent = 'Speech Recognition is not supported in this browser. Please use Chrome or Edge.';
+            systemMessageDisplay.classList.remove('hidden');
+            startStopButton.disabled = true;
+        } else {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            speechRecognizer = new SpeechRecognition(); // Renamed instance
+            speechRecognizer.continuous = true;
+            speechRecognizer.interimResults = false;
+            speechRecognizer.lang = 'en-US';
+
+            // Event handler: When speech is recognized
+            speechRecognizer.onresult = (event) => {
+                const lastResult = event.results[event.results.length - 1];
+                const transcribedTextChunk = lastResult[0].transcript.toLowerCase().trim(); // Renamed
+                
+                // Append the new transcription to the live display
+                liveTranscriptOutput.textContent += (liveTranscriptOutput.textContent ? ' ' : '') + transcribedTextChunk;
+                liveTranscriptOutput.scrollTop = liveTranscriptOutput.scrollHeight; // Auto-scroll to latest text
+
+                // Split the transcribed chunk into individual words
+                const wordsInChunk = transcribedTextChunk.split(/\s+/);
+                // Count how many times the wordToMonitor appears in this chunk
+                const newOccurrencesFound = wordsInChunk.filter(word => word === wordToMonitor).length;
+                
+                if (newOccurrencesFound > 0) {
+                    currentWordCount += newOccurrencesFound; // Update total count
+                    totalWordCountDisplay.textContent = currentWordCount; // Update display
+                }
+                updateLiveMetricsDisplay(); // Update all metrics (timer, WPM) immediately
+            };
+
+            // Event handler: When speech recognition service stops
+            speechRecognizer.onend = () => {
+                if (isMicrophoneActive) {
+                    // Automatically restart if continuous listening is desired
+                    speechRecognizer.start();
+                } else {
+                    // If manually stopped, reset button and update metrics one last time
+                    startStopButton.textContent = 'Start Listening';
+                    startStopButton.classList.remove('active');
+                    updateLiveMetricsDisplay();
+                }
+            };
+
+            // Event handler: When an error occurs in speech recognition
+            speechRecognizer.onerror = (event) => {
+                isMicrophoneActive = false;
+                startStopButton.textContent = 'Start Listening';
+                startStopButton.classList.remove('active');
+                if (event.error === 'not-allowed') {
+                    systemMessageDisplay.textContent = 'Microphone access was denied. Please allow access and try again.';
+                } else {
+                    systemMessageDisplay.textContent = `An error occurred: ${event.error}`;
+                }
+                systemMessageDisplay.classList.remove('hidden');
+                clearInterval(timerIntervalId); // Stop timer on error
+                updateLiveMetricsDisplay(); // Update metrics to reflect stopped state
+            };
+
+            // --- Button Functionality ---
+            startStopButton.onclick = () => {
+                if (isMicrophoneActive) {
+                    // Logic to stop listening
+                    speechRecognizer.stop();
+                    isMicrophoneActive = false;
+                    clearInterval(timerIntervalId); // Stop the timer updates
+                    updateLiveMetricsDisplay(); // Final update
+                } else {
+                    // Logic to start listening
+                    wordToMonitor = wordInput.value.toLowerCase().trim();
+                    if (!wordToMonitor) {
+                        alert("Please enter a word to count.");
+                        return;
+                    }
+                    displayMonitoredWordSpan.textContent = wordToMonitor;
+                    monitoredWordRateDisplay.textContent = wordToMonitor; // <--- This line updates the word in the RPM label
+                    
+                    // Reset and start session metrics
+                    currentWordCount = 0; // Reset total count for new session
+                    totalWordCountDisplay.textContent = currentWordCount;
+                    liveTranscriptOutput.textContent = ''; // Clear previous transcript
+                    sessionStartTime = Date.now(); // Record start time for timer
+                    timerIntervalId = setInterval(updateLiveMetricsDisplay, 1000); // Start timer updates every second
+
+                    speechRecognizer.start(); // Start speech recognition
+                    isMicrophoneActive = true;
+                    startStopButton.textContent = 'Stop Listening';
+                    startStopButton.classList.add('active');
+                    systemMessageDisplay.classList.add('hidden');
+                }
+            };
+
+            resetButton.onclick = () => {
+                if (isMicrophoneActive) { // Stop listening if active
+                    speechRecognizer.stop();
+                    isMicrophoneActive = false;
+                }
+                clearInterval(timerIntervalId); // Stop timer interval
+                
+                // Reset all state and displays
+                currentWordCount = 0;
+                sessionStartTime = 0;
+                totalWordCountDisplay.textContent = currentWordCount;
+                liveTranscriptOutput.textContent = '';
+                startStopButton.textContent = 'Start Listening';
+                startStopButton.classList.remove('active');
+                systemMessageDisplay.classList.add('hidden');
+                updateLiveMetricsDisplay(); // Reset all metrics displays (timer and WPM) to 0
+            };
+
+            // Update display words when input changes (real-time feedback)
+            wordInput.addEventListener('input', () => {
+                displayMonitoredWordSpan.textContent = wordInput.value || 'word';
+                monitoredWordRateDisplay.textContent = wordInput.value || 'word'; // <-- This line updates the word in the RPM label in real-time
+            });
+
+            // Initial call to set displays when the page loads
+            updateLiveMetricsDisplay();
+        }
+    </script>
+</body>
+</html>

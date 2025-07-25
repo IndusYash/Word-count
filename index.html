@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Word Counter with Dynamic RPM</title>
+    <title>Live Fuzzy Word/Phrase Counter with Dynamic RPM</title>
     <style>
         :root {
             --primary-color: #4A90E2;
@@ -65,7 +65,7 @@
             color: #555;
         }
 
-        #wordToCount {
+        #wordToCountInput {
             width: 100%;
             padding: 12px;
             border: 1px solid var(--border-color);
@@ -75,7 +75,7 @@
             transition: border-color 0.3s;
         }
 
-        #wordToCount:focus {
+        #wordToCountInput:focus {
             outline: none;
             border-color: var(--primary-color);
             box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
@@ -218,13 +218,13 @@
 <body>
 
     <div class="container">
-        <h1>Live Word Counter</h1>
-        <p>Count a specific word and track your "words per minute".</p>
+        <h1>Live Fuzzy Word/Phrase Counter</h1>
+        <p>Counts a specific word (even with small spelling differences) or an exact phrase.</p>
 
         <div class="controls">
             <div class="input-group">
-                <label for="wordToCountInput">Word to count:</label>
-                <input type="text" id="wordToCountInput" placeholder="e.g., 'hello'" value="okay" autofocus>
+                <label for="wordToCountInput">Word or Phrase to count:</label>
+                <input type="text" id="wordToCountInput" placeholder="e.g., 'hello world'" value="okay" autofocus>
             </div>
             <div class="button-group">
                 <button id="startButton">Start Listening</button>
@@ -256,30 +256,69 @@
     </div>
 
     <script>
-        // --- HTML Element References (now with clearer names) ---
+        // --- HTML Element References ---
         const startStopButton = document.getElementById('startButton');
         const resetButton = document.getElementById('clearButton');
-        const wordInput = document.getElementById('wordToCountInput'); // Renamed
-        const totalWordCountDisplay = document.getElementById('totalWordCount'); // Renamed
-        const displayMonitoredWordSpan = document.getElementById('displayMonitoredWord'); // Renamed
-        const liveTranscriptOutput = document.getElementById('liveTranscriptOutput'); // Renamed
-        const systemMessageDisplay = document.getElementById('systemMessage'); // Renamed
+        const wordInput = document.getElementById('wordToCountInput');
+        const totalWordCountDisplay = document.getElementById('totalWordCount');
+        const displayMonitoredWordSpan = document.getElementById('displayMonitoredWord');
+        const liveTranscriptOutput = document.getElementById('liveTranscriptOutput');
+        const systemMessageDisplay = document.getElementById('systemMessage');
 
-        const elapsedTimeDisplay = document.getElementById('elapsedTimeDisplay'); // Renamed
-        const wordsPerMinuteDisplay = document.getElementById('wordsPerMinuteDisplay'); // Renamed
-        const monitoredWordRateDisplay = document.getElementById('monitoredWordRateDisplay'); // Renamed
+        const elapsedTimeDisplay = document.getElementById('elapsedTimeDisplay');
+        const wordsPerMinuteDisplay = document.getElementById('wordsPerMinuteDisplay');
+        const monitoredWordRateDisplay = document.getElementById('monitoredWordRateDisplay');
 
-        // --- Application State Variables (now with clearer names) ---
-        let speechRecognizer; // Renamed from 'recognition'
-        let isMicrophoneActive = false; // Renamed from 'isListening'
-        let currentWordCount = 0; // Renamed from 'count'
-        let wordToMonitor = wordInput.value.toLowerCase().trim(); // Renamed from 'targetWord'
+        // --- Application State Variables ---
+        let speechRecognizer;
+        let isMicrophoneActive = false;
+        let currentWordCount = 0;
+        let wordToMonitor = wordInput.value.toLowerCase().trim();
 
-        let sessionStartTime = 0; // Renamed from 'startTime'
-        let timerIntervalId; // Renamed from 'timerInterval'
+        let sessionStartTime = 0;
+        let timerIntervalId;
+
+        // --- Fuzzy Matching Thresholds ---
+        // Threshold for individual words (e.g., 'oka' for 'okay')
+        const FUZZY_MATCH_THRESHOLD_WORD = 2; 
+        // Threshold for individual words WITHIN a phrase (e.g., 'worl' for 'world' in 'hello world')
+        const FUZZY_MATCH_THRESHOLD_PHRASE_WORD = 3; 
+
+        // --- Levenshtein Distance Function ---
+        // Calculates the minimum number of single-character edits (insertions, deletions, substitutions)
+        // required to change string 'a' into string 'b'.
+        function calculateLevenshteinDistance(a, b) {
+            if (a.length === 0) return b.length;
+            if (b.length === 0) return a.length;
+
+            const matrix = [];
+
+            // Increment along the first column of each row
+            for (let i = 0; i <= b.length; i++) {
+                matrix[i] = [i];
+            }
+
+            // Increment along the first row of each column
+            for (let j = 0; j <= a.length; j++) {
+                matrix[0][j] = j;
+            }
+
+            // Fill in the rest of the matrix
+            for (let i = 1; i <= b.length; i++) {
+                for (let j = 1; j <= a.length; j++) {
+                    const cost = (b.charAt(i - 1) === a.charAt(j - 1)) ? 0 : 1;
+                    matrix[i][j] = Math.min(
+                        matrix[i - 1][j - 1] + cost, // substitution
+                        matrix[i][j - 1] + 1,     // insertion
+                        matrix[i - 1][j] + 1      // deletion
+                    );
+                }
+            }
+            return matrix[b.length][a.length];
+        }
 
         // --- Helper Function: Formats seconds into MM:SS ---
-        function formatSecondsToMinutesSeconds(totalSeconds) { // Renamed
+        function formatSecondsToMinutesSeconds(totalSeconds) {
             const minutes = Math.floor(totalSeconds / 60);
             const remainingSeconds = Math.floor(totalSeconds % 60);
             const formattedMinutes = String(minutes).padStart(2, '0');
@@ -288,9 +327,8 @@
         }
 
         // --- Core Function: Updates all real-time metrics (timer, WPM) ---
-        function updateLiveMetricsDisplay() { // Renamed
-            // If the session hasn't started or is fully reset, set displays to initial state
-            if (!isMicrophoneActive && sessionStartTime === 0) { 
+        function updateLiveMetricsDisplay() {
+            if (!isMicrophoneActive && sessionStartTime === 0) {
                 elapsedTimeDisplay.textContent = '00:00';
                 wordsPerMinuteDisplay.textContent = '0.0';
                 return;
@@ -299,14 +337,13 @@
             const elapsedMilliseconds = Date.now() - sessionStartTime;
             const elapsedSeconds = elapsedMilliseconds / 1000;
 
-            elapsedTimeDisplay.textContent = formatSecondsToMinutesSeconds(elapsedSeconds); // Update timer display
+            elapsedTimeDisplay.textContent = formatSecondsToMinutesSeconds(elapsedSeconds);
 
             if (elapsedSeconds > 0) {
-                // Calculate "Monitored Words Per Minute" (MWPM)
                 const calculatedWPM = (currentWordCount / elapsedSeconds) * 60;
-                wordsPerMinuteDisplay.textContent = calculatedWPM.toFixed(1); // Display MWPM rounded to one decimal place
+                wordsPerMinuteDisplay.textContent = calculatedWPM.toFixed(1);
             } else {
-                wordsPerMinuteDisplay.textContent = '0.0'; // Avoid division by zero
+                wordsPerMinuteDisplay.textContent = '0.0';
             }
         }
 
@@ -317,7 +354,7 @@
             startStopButton.disabled = true;
         } else {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            speechRecognizer = new SpeechRecognition(); // Renamed instance
+            speechRecognizer = new SpeechRecognition();
             speechRecognizer.continuous = true;
             speechRecognizer.interimResults = false;
             speechRecognizer.lang = 'en-US';
@@ -325,31 +362,68 @@
             // Event handler: When speech is recognized
             speechRecognizer.onresult = (event) => {
                 const lastResult = event.results[event.results.length - 1];
-                const transcribedTextChunk = lastResult[0].transcript.toLowerCase().trim(); // Renamed
+                const transcribedTextChunk = lastResult[0].transcript.toLowerCase(); 
                 
-                // Append the new transcription to the live display
                 liveTranscriptOutput.textContent += (liveTranscriptOutput.textContent ? ' ' : '') + transcribedTextChunk;
-                liveTranscriptOutput.scrollTop = liveTranscriptOutput.scrollHeight; // Auto-scroll to latest text
+                liveTranscriptOutput.scrollTop = liveTranscriptOutput.scrollHeight;
 
-                // Split the transcribed chunk into individual words
-                const wordsInChunk = transcribedTextChunk.split(/\s+/);
-                // Count how many times the wordToMonitor appears in this chunk
-                const newOccurrencesFound = wordsInChunk.filter(word => word === wordToMonitor).length;
+                let newOccurrencesFound = 0;
+                const monitoredTerm = wordToMonitor.toLowerCase();
+
+                // --- FUZZY MATCHING LOGIC WITH DISTINCT THRESHOLDS ---
+                if (monitoredTerm.includes(' ')) {
+                    // PHRASE COUNTING (FUZZY WORD-BY-WORD MATCHING FOR PHRASES)
+                    const targetPhraseWords = monitoredTerm.split(/\s+/).filter(w => w !== '');
+                    const phraseLength = targetPhraseWords.length;
+
+                    const allTranscriptWords = transcribedTextChunk.split(/\b\W+\b|\s+/).filter(word => word !== '');
+
+                    // Iterate through the transcript words with a sliding window
+                    for (let i = 0; i <= allTranscriptWords.length - phraseLength; i++) {
+                        let isPhraseFuzzyMatch = true; // Assume true until a word doesn't match
+                        
+                        // Compare each word in the current window to the corresponding target phrase word
+                        for (let j = 0; j < phraseLength; j++) {
+                            const currentWordInTranscript = allTranscriptWords[i + j];
+                            const targetWordInPhrase = targetPhraseWords[j];
+
+                            // Check if word exists AND if its distance is within FUZZY_MATCH_THRESHOLD_PHRASE_WORD
+                            if (!currentWordInTranscript || calculateLevenshteinDistance(currentWordInTranscript, targetWordInPhrase) > FUZZY_MATCH_THRESHOLD_PHRASE_WORD) { // Corrected typo here
+                                isPhraseFuzzyMatch = false; 
+                                break; 
+                            }
+                        }
+
+                        if (isPhraseFuzzyMatch) {
+                            newOccurrencesFound++;
+                        }
+                    }
+
+                } else {
+                    // SINGLE WORD COUNTING (WITH FUZZY MATCHING)
+                    const wordsInChunk = transcribedTextChunk.split(/\b\W+\b|\s+/).filter(word => word !== '');
+
+                    for (const word of wordsInChunk) {
+                        const distance = calculateLevenshteinDistance(word, monitoredTerm);
+                        if (distance <= FUZZY_MATCH_THRESHOLD_WORD) {
+                            newOccurrencesFound++;
+                        }
+                    }
+                }
+                // --- END FUZZY MATCHING LOGIC ---
                 
                 if (newOccurrencesFound > 0) {
-                    currentWordCount += newOccurrencesFound; // Update total count
-                    totalWordCountDisplay.textContent = currentWordCount; // Update display
+                    currentWordCount += newOccurrencesFound;
+                    totalWordCountDisplay.textContent = currentWordCount;
                 }
-                updateLiveMetricsDisplay(); // Update all metrics (timer, WPM) immediately
+                updateLiveMetricsDisplay();
             };
 
             // Event handler: When speech recognition service stops
             speechRecognizer.onend = () => {
                 if (isMicrophoneActive) {
-                    // Automatically restart if continuous listening is desired
                     speechRecognizer.start();
                 } else {
-                    // If manually stopped, reset button and update metrics one last time
                     startStopButton.textContent = 'Start Listening';
                     startStopButton.classList.remove('active');
                     updateLiveMetricsDisplay();
@@ -367,36 +441,33 @@
                     systemMessageDisplay.textContent = `An error occurred: ${event.error}`;
                 }
                 systemMessageDisplay.classList.remove('hidden');
-                clearInterval(timerIntervalId); // Stop timer on error
-                updateLiveMetricsDisplay(); // Update metrics to reflect stopped state
+                clearInterval(timerIntervalId);
+                updateLiveMetricsDisplay();
             };
 
             // --- Button Functionality ---
             startStopButton.onclick = () => {
                 if (isMicrophoneActive) {
-                    // Logic to stop listening
                     speechRecognizer.stop();
                     isMicrophoneActive = false;
-                    clearInterval(timerIntervalId); // Stop the timer updates
-                    updateLiveMetricsDisplay(); // Final update
+                    clearInterval(timerIntervalId);
+                    updateLiveMetricsDisplay();
                 } else {
-                    // Logic to start listening
                     wordToMonitor = wordInput.value.toLowerCase().trim();
                     if (!wordToMonitor) {
-                        alert("Please enter a word to count.");
+                        alert("Please enter a word or phrase to count.");
                         return;
                     }
                     displayMonitoredWordSpan.textContent = wordToMonitor;
-                    monitoredWordRateDisplay.textContent = wordToMonitor; // <--- This line updates the word in the RPM label
+                    monitoredWordRateDisplay.textContent = wordToMonitor;
                     
-                    // Reset and start session metrics
-                    currentWordCount = 0; // Reset total count for new session
+                    currentWordCount = 0;
                     totalWordCountDisplay.textContent = currentWordCount;
-                    liveTranscriptOutput.textContent = ''; // Clear previous transcript
-                    sessionStartTime = Date.now(); // Record start time for timer
-                    timerIntervalId = setInterval(updateLiveMetricsDisplay, 1000); // Start timer updates every second
+                    liveTranscriptOutput.textContent = '';
+                    sessionStartTime = Date.now();
+                    timerIntervalId = setInterval(updateLiveMetricsDisplay, 1000);
 
-                    speechRecognizer.start(); // Start speech recognition
+                    speechRecognizer.start();
                     isMicrophoneActive = true;
                     startStopButton.textContent = 'Stop Listening';
                     startStopButton.classList.add('active');
@@ -405,13 +476,12 @@
             };
 
             resetButton.onclick = () => {
-                if (isMicrophoneActive) { // Stop listening if active
+                if (isMicrophoneActive) {
                     speechRecognizer.stop();
                     isMicrophoneActive = false;
                 }
-                clearInterval(timerIntervalId); // Stop timer interval
+                clearInterval(timerIntervalId);
                 
-                // Reset all state and displays
                 currentWordCount = 0;
                 sessionStartTime = 0;
                 totalWordCountDisplay.textContent = currentWordCount;
@@ -419,13 +489,13 @@
                 startStopButton.textContent = 'Start Listening';
                 startStopButton.classList.remove('active');
                 systemMessageDisplay.classList.add('hidden');
-                updateLiveMetricsDisplay(); // Reset all metrics displays (timer and WPM) to 0
+                updateLiveMetricsDisplay();
             };
 
-            // Update display words when input changes (real-time feedback)
+            // Update display words when input changes
             wordInput.addEventListener('input', () => {
                 displayMonitoredWordSpan.textContent = wordInput.value || 'word';
-                monitoredWordRateDisplay.textContent = wordInput.value || 'word'; // <-- This line updates the word in the RPM label in real-time
+                monitoredWordRateDisplay.textContent = wordInput.value || 'word';
             });
 
             // Initial call to set displays when the page loads
